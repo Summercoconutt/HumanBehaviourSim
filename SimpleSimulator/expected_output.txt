@@ -1,0 +1,8 @@
+Completed steps: 5
+Agent count: 1
+Decision records: 5
+SimpleAgent1_1 | Round 1: Choose a number. | choice=1
+SimpleAgent1_1 | Round 2: Choose a number. | choice=1
+SimpleAgent1_1 | Round 3: Choose a number. | choice=1
+SimpleAgent1_1 | Round 4: Choose a number. | choice=1
+SimpleAgent1_1 | Round 5: Choose a number. | choice=1
