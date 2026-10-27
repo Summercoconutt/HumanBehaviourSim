@@ -11,9 +11,14 @@ python --version
 python -m pip install -r requirements.txt
 python main.py
 python main.py SimpleScenario1 SimpleParameters
+python main.py CarPurchaseScenario LinearClassifierParameters
 ```
 
 命令行的两个可选参数依次是场景类名和参数类名；省略时使用 `SimpleScenario1` 和 `SimpleParameters`。新增场景或参数类后，需要在 `main.py` 中将名称加入对应的映射表。
+
+`Agents/LinearClassifierAgent.py` 使用 `Data/final.csv` 训练二分类模型。使用该 Agent 时，场景的 `context` 需要提供 `Buying_Price`、`Maintenance_Price`、`No_of_Doors`、`Person_Capacity`、`Size_of_Luggage`、`Safety`、`Fuel_Type` 和 `Horse_power`，每个决策的选项需要包含模型预测出的 `0` 或 `1`。
+
+`CarPurchaseScenario` 从数据集的分层测试集取出十辆车，逐轮询问是否购买（`0 = No`、`1 = Yes`）。使用 `LinearClassifierParameters` 运行时，Agent 从当前车辆的特征生成二元预测。
 
 成功输出：
 
