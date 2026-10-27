@@ -10,7 +10,10 @@
 python --version
 python -m pip install -r requirements.txt
 python main.py
+python main.py SimpleScenario1 SimpleParameters
 ```
+
+命令行的两个可选参数依次是场景类名和参数类名；省略时使用 `SimpleScenario1` 和 `SimpleParameters`。新增场景或参数类后，需要在 `main.py` 中将名称加入对应的映射表。
 
 成功输出：
 
