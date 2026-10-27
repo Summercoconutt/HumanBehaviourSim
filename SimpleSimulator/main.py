@@ -1,7 +1,7 @@
 import argparse
 
-from Parameters.SimpleParameters1 import SimpleParameters
-from Scenarios.SimpleScenario1 import SimpleScenario1
+import Parameters
+import Scenarios
 from Simulator.SimulatorCore import (
     AbstractParameters,
     AbstractScenario,
@@ -10,10 +10,12 @@ from Simulator.SimulatorCore import (
 
 
 SCENARIOS: dict[str, type[AbstractScenario]] = {
-    "SimpleScenario1": SimpleScenario1,
+    "SimpleScenario1": Scenarios.SimpleScenario1.SimpleScenario1,
+    "CarPurchaseScenario": Scenarios.CarPurchaseScenario.CarPurchaseScenario,
 }
 PARAMETERS: dict[str, type[AbstractParameters]] = {
-    "SimpleParameters": SimpleParameters,
+    "SimpleParameters": Parameters.SimpleParameters1.SimpleParameters,
+    "LinearClassifierParameters": Parameters.LinearClassifierParameters.LinearClassifierParameters,
 }
 
 
