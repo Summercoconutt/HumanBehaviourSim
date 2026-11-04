@@ -22,8 +22,22 @@ PARAMETERS: dict[str, type[AbstractParameters]] = {
 def main(
     scenario_name: str = "SimpleScenario1",
     parameters_name: str = "SimpleParameters",
+    *,
+    scenario_type: str = "random",
+    sample_count: int | None = None,
+    seed: int = 42,
 ) -> None:
-    scenario = SCENARIOS[scenario_name]()
+    if scenario_name == "CarPurchaseScenario":
+        scenario = Scenarios.CarPurchaseScenario.CarPurchaseScenario(
+            scenario_type=scenario_type,
+            sample_count=sample_count,
+            random_state=seed,
+        )
+    else:
+        if scenario_type != "random" or sample_count is not None or seed != 42:
+            raise ValueError("Car selection options require CarPurchaseScenario.")
+        scenario = SCENARIOS[scenario_name]()
+
     parameters = PARAMETERS[parameters_name]()
     simulator = SimulatorCore()
     result = simulator(scenario, parameters)
@@ -44,7 +58,30 @@ if __name__ == "__main__":
         nargs="?",
         choices=PARAMETERS,
         default="SimpleParameters",
-        help="parameters class name (default: SimpleParameters)",
+    )
+    parser.add_argument(
+        "--scenario-type",
+        choices=list(Scenarios.CarPurchaseScenario.SCENARIO_FILTERS),
+        default="random",
+        help="vehicle filter for CarPurchaseScenario (default: random)",
+    )
+    parser.add_argument(
+        "--sample-count",
+        type=int,
+        default=None,
+        help="number of held-out cars (default: 10 for random, all for named filters)",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="seed used when sampling vehicles (default: 42)",
     )
     arguments = parser.parse_args()
-    main(arguments.scenario, arguments.parameters)
+    main(
+        arguments.scenario,
+        arguments.parameters,
+        scenario_type=arguments.scenario_type,
+        sample_count=arguments.sample_count,
+        seed=arguments.seed,
+    )
