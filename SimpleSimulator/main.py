@@ -1,7 +1,9 @@
 import argparse
 
-import Parameters
-import Scenarios
+from Parameters.LinearClassifierParameters import LinearClassifierParameters
+from Parameters.SimpleParameters1 import SimpleParameters
+from Scenarios.CarPurchaseScenario import CarPurchaseScenario, SCENARIO_FILTERS
+from Scenarios.SimpleScenario1 import SimpleScenario1
 from Simulator.SimulatorCore import (
     AbstractParameters,
     AbstractScenario,
@@ -10,12 +12,12 @@ from Simulator.SimulatorCore import (
 
 
 SCENARIOS: dict[str, type[AbstractScenario]] = {
-    "SimpleScenario1": Scenarios.SimpleScenario1.SimpleScenario1,
-    "CarPurchaseScenario": Scenarios.CarPurchaseScenario.CarPurchaseScenario,
+    "SimpleScenario1": SimpleScenario1,
+    "CarPurchaseScenario": CarPurchaseScenario,
 }
 PARAMETERS: dict[str, type[AbstractParameters]] = {
-    "SimpleParameters": Parameters.SimpleParameters1.SimpleParameters,
-    "LinearClassifierParameters": Parameters.LinearClassifierParameters.LinearClassifierParameters,
+    "SimpleParameters": SimpleParameters,
+    "LinearClassifierParameters": LinearClassifierParameters,
 }
 
 
@@ -28,7 +30,7 @@ def main(
     seed: int = 42,
 ) -> None:
     if scenario_name == "CarPurchaseScenario":
-        scenario = Scenarios.CarPurchaseScenario.CarPurchaseScenario(
+        scenario = CarPurchaseScenario(
             scenario_type=scenario_type,
             sample_count=sample_count,
             random_state=seed,
@@ -61,7 +63,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--scenario-type",
-        choices=list(Scenarios.CarPurchaseScenario.SCENARIO_FILTERS),
+        choices=list(SCENARIO_FILTERS),
         default="random",
         help="vehicle filter for CarPurchaseScenario (default: random)",
     )
