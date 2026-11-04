@@ -1,6 +1,7 @@
 import csv
 from pathlib import Path
 
+import numpy as np
 from numpy.typing import NDArray
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -84,35 +85,43 @@ def encode_features(
     return vectorizer.transform(features)
 
 
+def car_data_split_indices(
+    targets: list[int],
+) -> tuple[NDArray, NDArray, NDArray]:
+    """One shared, deterministic 70/15/15 split for training and scenarios.
+
+    Call with the original row ordering and unchanged binary targets. The test
+    partition is never used for fitting either the classifier or vectorizer.
+    """
+    indices = np.arange(len(targets))
+    train_val_idx, test_idx = train_test_split(
+        indices,
+        test_size=0.15,
+        random_state=42,
+        stratify=targets,
+    )
+    train_idx, val_idx = train_test_split(
+        train_val_idx,
+        test_size=3 / 17,
+        random_state=42,
+        stratify=np.asarray(targets)[train_val_idx],
+    )
+    return train_idx, val_idx, test_idx
+
+
 def split_data(
     features: NDArray,
     targets: list[int],
 ) -> tuple[NDArray, NDArray, NDArray, list[int], list[int], list[int]]:
-    train_validation_features, test_features, train_validation_targets, test_targets = (
-        train_test_split(
-            features,
-            targets,
-            test_size=0.15,
-            random_state=42,
-            stratify=targets,
-        )
-    )
-    train_features, validation_features, train_targets, validation_targets = (
-        train_test_split(
-            train_validation_features,
-            train_validation_targets,
-            test_size=3 / 17,
-            random_state=42,
-            stratify=train_validation_targets,
-        )
-    )
+    """Legacy numeric-array interface, now backed by the shared split indices."""
+    train_idx, val_idx, test_idx = car_data_split_indices(targets)
     return (
-        train_features,
-        validation_features,
-        test_features,
-        train_targets,
-        validation_targets,
-        test_targets,
+        features[train_idx],
+        features[val_idx],
+        features[test_idx],
+        [targets[i] for i in train_idx],
+        [targets[i] for i in val_idx],
+        [targets[i] for i in test_idx],
     )
 
 
@@ -146,18 +155,15 @@ class LCAgent(AbstractAgent):
 
     def __init__(self) -> None:
         rows, targets = load_data()
+        train_idx, _val_idx, _test_idx = car_data_split_indices(targets)
+        training_rows = [rows[int(i)] for i in train_idx]
+        training_targets = [targets[int(i)] for i in train_idx]
+
+        # Fit the encoder only on the training partition to avoid test leakage.
         self.vectorizer = DictVectorizer(sparse=False)
-        encoded_features = encode_features(rows, self.vectorizer, fit=True)
-        (
-            train_features,
-            _validation_features,
-            _test_features,
-            train_targets,
-            _validation_targets,
-            _test_targets,
-        ) = split_data(encoded_features, targets)
+        train_features = encode_features(training_rows, self.vectorizer, fit=True)
         self.classifier = initialize_classifier()
-        self.classifier.fit(train_features, train_targets)
+        self.classifier.fit(train_features, training_targets)
 
     def decide(self, decision: Decision, state: State) -> AgentDecision:
         if not decision.decision:
