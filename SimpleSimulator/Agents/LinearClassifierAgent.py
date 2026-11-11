@@ -1,4 +1,5 @@
 import csv
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -150,6 +151,28 @@ def convert_probability_to_binary_vote(
     return int(probability >= threshold)
 
 
+def features_from_context(feature_context: Mapping[str, object]) -> FeatureRow:
+    """Coerce one vehicle mapping into the classifier's training representation."""
+    missing_features = set(FEATURE_COLUMNS) - feature_context.keys()
+    if missing_features:
+        raise ValueError(
+            f"Scenario context is missing classifier features: "
+            f"{sorted(missing_features)}"
+        )
+
+    features: FeatureRow = {}
+    for column in FEATURE_COLUMNS[:-1]:
+        value = feature_context[column]
+        if value is None:
+            raise ValueError(f"Scenario feature {column} cannot be None.")
+        features[column] = str(value)
+    try:
+        features["Horse_power"] = float(feature_context["Horse_power"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("Scenario Horse_power must be numeric.") from error
+    return features
+
+
 class LCAgent(AbstractAgent):
     agent_id = "Simple1"
 
@@ -183,24 +206,7 @@ class LCAgent(AbstractAgent):
                 )
             feature_context = car
 
-        missing_features = set(FEATURE_COLUMNS) - feature_context.keys()
-        if missing_features:
-            raise ValueError(
-                f"Scenario context is missing classifier features: "
-                f"{sorted(missing_features)}"
-            )
-
-        features: FeatureRow = {}
-        for column in FEATURE_COLUMNS[:-1]:
-            value = feature_context[column]
-            if value is None:
-                raise ValueError(f"Scenario feature {column} cannot be None.")
-            features[column] = str(value)
-        try:
-            features["Horse_power"] = float(feature_context["Horse_power"])
-        except (TypeError, ValueError) as error:
-            raise ValueError("Scenario Horse_power must be numeric.") from error
-
+        features = features_from_context(feature_context)
         probability = calculate_baseline_vote_probability(
             self.classifier,
             self.vectorizer,

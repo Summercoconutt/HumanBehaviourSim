@@ -40,6 +40,8 @@
 - Fit the classifier's DictVectorizer on training features only.
 - Preserve existing split_data() helper and default simulator behaviour.
 - Add CLI configuration options and tests for split isolation and scenario reproducibility.
+- Restore the decision-prompt newline so `CarPurchaseScenario` imports.
+- Add `--compare`, which scores full, budget, premium, safe_family, and low_safety_family once each with the same training-only model.
 
 ## 4. Scenario definitions
 
@@ -64,8 +66,9 @@ From the SimpleSimulator directory, with dependencies installed:
     python main.py CarPurchaseScenario LinearClassifierParameters --scenario-type premium
     python main.py CarPurchaseScenario LinearClassifierParameters --scenario-type safe_family
     python main.py CarPurchaseScenario LinearClassifierParameters --scenario-type low_safety_family
+    python main.py CarPurchaseScenario LinearClassifierParameters --compare
 
-Defaults: random / ten cars / seed 42. Named filters select all matching holdout cars unless sample_count is supplied. The seed controls sampling, not the fixed data split.
+Defaults: random / ten cars / seed 42. Named filters select all matching holdout cars unless sample_count is supplied. The seed controls sampling, not the fixed data split. `--compare` ignores a one-off sample and reports the five predefined held-out groups.
 
 ## 6. Tests and remaining validation
 
@@ -81,10 +84,31 @@ Added tests check:
 - full scenario covers every held-out row;
 - errors are raised for invalid names and impossible sample requests.
 
-**Testing limitation:** Six added tests and one agent decision smoke test were exercised locally with a synthetic fixture and a minimal SimulatorCore stub because the sandbox did not have SimPy installed. The full end-to-end simulator test suite using the repository dataset and the actual SimPy engine **must still be run before merging**.
+The first draft of this review was checked with a synthetic fixture because that sandbox did not have SimPy. The project environment has since run the repository data and the real simulator.
+
+On 11 November 2026, from `SimpleSimulator` with Python 3.13.5, SimPy 4.1.2, and scikit-learn 1.9.1:
+
+    python -m unittest discover -s tests -v
+
+reported **18 tests, 18 passed, 0 failures, 0 errors**.
+
+The same environment also ran the six scenario commands. Each exited 0, every recorded choice was 0 or 1, and the decision count was three times the car count because `LinearClassifierParameters` builds three identical agents:
+
+| Scenario | Cars | Decision records |
+|---|---:|---:|
+| default random | 10 | 30 |
+| budget, sample 12 | 12 | 36 |
+| premium | 124 | 372 |
+| safe_family | 56 | 168 |
+| low_safety_family | 46 | 138 |
+| full | 260 | 780 |
+
+One import defect was fixed before those runs: the car-decision f-string had been split across lines and could not be parsed. It again uses an explicit `\n`.
 
 ## 7. Acceptance and next steps
 
-Issue #2 supplies a documented review, initial code refactoring, configurable scenario construction, shared split logic, and unit tests. Before merging, run the full suite with the actual data, address any integration problems, and obtain George's review.
+Issue #2 now has the documented review, configurable scenario construction, a shared split, training-only vectorizer fitting, and a passing full test suite on the real data. The implementation supports configurable held-out tests without putting test rows into `classifier.fit`.
 
-Issue #3 can then add scenario-level mean probabilities, predicted acceptability rates, uncertainty estimates and agent preference comparisons. Behavioural claims about actual consumers will require respondent-level choice or willingness-to-buy data.
+George's review is still required before merging pull request #4. This issue should stay open until that review.
+
+Issue #3 is covered by `python main.py CarPurchaseScenario LinearClassifierParameters --compare` and by `docs/Held-Out Scenario Comparison Explanation.md`. That run reports mean predicted probability, acceptance rate, and the two predefined contrasts. It does not add resampling intervals or agents with different preferences. Those remain later work. The scores are predicted acceptability, not observed willingness to buy.

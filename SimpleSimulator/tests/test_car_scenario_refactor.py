@@ -1,8 +1,20 @@
 import unittest
 
-from Agents.LinearClassifierAgent import car_data_split_indices, load_data
-from Scenarios.CarPurchaseScenario import CarPurchaseScenario, SCENARIO_FILTERS
-from Simulator.SimulatorCore import State
+from Agents.LinearClassifierAgent import (
+    LCAgent,
+    car_data_split_indices,
+    calculate_baseline_vote_probability,
+    features_from_context,
+    load_data,
+)
+from Scenarios.CarPurchaseScenario import (
+    SCENARIO_FILTERS,
+    CarPurchaseScenario,
+    compare_held_out_scenarios,
+    comparison_deltas,
+    summarize_scenario,
+)
+from Simulator.SimulatorCore import Decision, State
 
 
 class ConfigurableScenarioTests(unittest.TestCase):
@@ -54,6 +66,56 @@ class ConfigurableScenarioTests(unittest.TestCase):
             CarPurchaseScenario(sample_count=0)
         with self.assertRaisesRegex(ValueError, "contains only"):
             CarPurchaseScenario(scenario_type="budget", sample_count=9999)
+
+    def test_held_out_comparison_uses_one_model_and_matches_votes(self):
+        agent = LCAgent()
+        first = compare_held_out_scenarios(agent)
+        second = compare_held_out_scenarios(agent)
+        expected_counts = {
+            "full": 260,
+            "budget": 62,
+            "premium": 124,
+            "safe_family": 56,
+            "low_safety_family": 46,
+        }
+        self.assertEqual([summary.scenario_type for summary in first], list(expected_counts))
+        for summary in first:
+            self.assertEqual(summary.sample_count, expected_counts[summary.scenario_type])
+            self.assertGreater(summary.sample_count, 0)
+            self.assertGreaterEqual(summary.mean_probability, 0.0)
+            self.assertLessEqual(summary.mean_probability, 1.0)
+            self.assertAlmostEqual(
+                summary.acceptance_rate,
+                summary.positive_votes / summary.sample_count,
+            )
+        self.assertEqual(first, second)
+
+        scenario = CarPurchaseScenario(scenario_type="budget")
+        self.assertTrue(set(scenario.selected_indices) <= set(self.test_idx))
+        summary = summarize_scenario(scenario, agent)
+        probabilities = []
+        votes = []
+        for car in scenario.cars:
+            probability = calculate_baseline_vote_probability(
+                agent.classifier,
+                agent.vectorizer,
+                features_from_context(car),
+            )
+            answer = agent.decide(Decision("Would you buy this car?", [0, 1]), State(context=car))
+            probabilities.append(probability)
+            votes.append(answer.choice)
+        self.assertAlmostEqual(summary.mean_probability, sum(probabilities) / len(probabilities))
+        self.assertEqual(summary.positive_votes, sum(votes))
+        deltas = comparison_deltas(first)
+        self.assertEqual(
+            set(deltas),
+            {"budget_minus_premium", "safe_family_minus_low_safety_family"},
+        )
+        for probability_delta, rate_delta in deltas.values():
+            self.assertGreaterEqual(probability_delta, -1.0)
+            self.assertLessEqual(probability_delta, 1.0)
+            self.assertGreaterEqual(rate_delta, -1.0)
+            self.assertLessEqual(rate_delta, 1.0)
 
 
 if __name__ == "__main__":
