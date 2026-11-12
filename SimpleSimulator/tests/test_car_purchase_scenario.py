@@ -14,7 +14,13 @@ class CarPurchaseScenarioChecks(unittest.TestCase):
         self.assertEqual(len(scenario.context["cars"]), 10)
         self.assertTrue(all(decision.decision == [0, 1] for decision in decisions))
         self.assertTrue(
-            all("Would you buy this car?" in decision.text_body for decision in decisions)
+            all(
+                "Is this vehicle configuration acceptable?" in decision.text_body
+                for decision in decisions
+            )
+        )
+        self.assertTrue(
+            all("Would you buy" not in decision.text_body for decision in decisions)
         )
         self.assertTrue(scenario.is_complete(State(step=10)))
 

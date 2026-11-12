@@ -1,6 +1,15 @@
 import argparse
 
-from Parameters.LinearClassifierParameters import LinearClassifierParameters
+from Agents.PreferenceAgent import format_preference_demo
+from Evaluation.reports import (
+    controlled_sensitivity,
+    format_full_evaluation,
+    format_sensitivity,
+)
+from Parameters.LinearClassifierParameters import (
+    LinearClassifierParameters,
+    SingleLinearClassifierParameters,
+)
 from Parameters.SimpleParameters1 import SimpleParameters
 from Scenarios.CarPurchaseScenario import (
     SCENARIO_FILTERS,
@@ -23,6 +32,7 @@ SCENARIOS: dict[str, type[AbstractScenario]] = {
 PARAMETERS: dict[str, type[AbstractParameters]] = {
     "SimpleParameters": SimpleParameters,
     "LinearClassifierParameters": LinearClassifierParameters,
+    "SingleLinearClassifierParameters": SingleLinearClassifierParameters,
 }
 
 
@@ -34,16 +44,26 @@ def main(
     sample_count: int | None = None,
     seed: int = 42,
     compare: bool = False,
+    evaluate: bool = False,
+    sensitivity: bool = False,
+    preferences: bool = False,
 ) -> None:
-    if compare:
+    if compare or evaluate or sensitivity or preferences:
         if scenario_name != "CarPurchaseScenario":
-            raise ValueError("Scenario comparison requires CarPurchaseScenario.")
+            raise ValueError("Scenario reports require CarPurchaseScenario.")
         if scenario_type != "random" or sample_count is not None or seed != 42:
             raise ValueError(
-                "--compare evaluates the predefined held-out scenarios; "
+                "Report flags use the predefined experiments; "
                 "omit --scenario-type, --sample-count, and --seed."
             )
-        print(format_scenario_comparison(compare_held_out_scenarios()))
+        if compare:
+            print(format_scenario_comparison(compare_held_out_scenarios()))
+        if evaluate:
+            print(format_full_evaluation())
+        if sensitivity:
+            print(format_sensitivity(controlled_sensitivity()))
+        if preferences:
+            print(format_preference_demo())
         return
 
     if scenario_name == "CarPurchaseScenario":
@@ -101,8 +121,23 @@ if __name__ == "__main__":
         action="store_true",
         help=(
             "compare full, budget, premium, safe_family, and "
-            "low_safety_family on one trained baseline model"
+            "low_safety_family predicted acceptability"
         ),
+    )
+    parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        help="report exploratory holdout accuracy and the development-set check",
+    )
+    parser.add_argument(
+        "--sensitivity",
+        action="store_true",
+        help="change one constructed-vehicle attribute at a time",
+    )
+    parser.add_argument(
+        "--preferences",
+        action="store_true",
+        help="show two illustrative synthetic preference profiles",
     )
     arguments = parser.parse_args()
     main(
@@ -112,4 +147,7 @@ if __name__ == "__main__":
         sample_count=arguments.sample_count,
         seed=arguments.seed,
         compare=arguments.compare,
+        evaluate=arguments.evaluate,
+        sensitivity=arguments.sensitivity,
+        preferences=arguments.preferences,
     )

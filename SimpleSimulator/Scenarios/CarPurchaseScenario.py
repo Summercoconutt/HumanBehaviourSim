@@ -21,6 +21,11 @@ from Simulator.SimulatorCore import (
 )
 
 
+# budget and premium are descriptive groups, not a symmetric price experiment.
+# budget constrains both price columns; premium constrains buying price only.
+# sporty_proxy and electric_proxy use Fuel_Type and Horse_power. Those two
+# columns are not in the original UCI Car Evaluation data, and this repository
+# does not record how they were generated. They are explicitly proxies.
 SCENARIO_FILTERS: dict[str, Callable[[FeatureRow], bool]] = {
     "random": lambda car: True,
     "full": lambda car: True,
@@ -37,7 +42,13 @@ SCENARIO_FILTERS: dict[str, Callable[[FeatureRow], bool]] = {
         car["Person_Capacity"] in ("4", "more")
         and car["Safety"] == "low"
     ),
+    "sporty_proxy": lambda car: (
+        float(car["Horse_power"]) >= 250 and car["No_of_Doors"] in ("2", "3")
+    ),
+    "electric_proxy": lambda car: car["Fuel_Type"] == "electric",
 }
+
+ACCEPTABILITY_QUESTION = "Is this vehicle configuration acceptable?"
 
 
 class CarPurchaseScenario(AbstractScenario):
@@ -104,8 +115,8 @@ class CarPurchaseScenario(AbstractScenario):
             decisions.append(
                 Decision(
                     text_body=(
-                        f"Car {car_number}: Would you buy this car? "
-                        f"(0 = No, 1 = Yes)\n{car_details}"
+                        f"Car {car_number}: {ACCEPTABILITY_QUESTION} "
+                        f"(0 = unacceptable, 1 = acceptable)\n{car_details}"
                     ),
                     decision=[0, 1],
                 )
