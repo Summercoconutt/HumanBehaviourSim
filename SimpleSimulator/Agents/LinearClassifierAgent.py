@@ -1,6 +1,9 @@
 import csv
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 from numpy.typing import NDArray
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import LogisticRegression
@@ -19,7 +22,10 @@ FEATURE_COLUMNS = (
     "Fuel_Type",
     "Horse_power",
 )
-POSITIVE_LABELS = {"acc", "good", "vgood"}
+# Binary acceptability mapping. This is not an observed purchase or a willingness-to-pay label.
+# unacc -> 0; acc, good, and vgood -> 1.
+LABEL_MAPPING = {"unacc": 0, "acc": 1, "good": 1, "vgood": 1}
+POSITIVE_LABELS = {label for label, value in LABEL_MAPPING.items() if value == 1}
 DATA_PATH = Path(__file__).resolve().parents[2] / "Data" / "final.csv"
 
 FeatureRow = dict[str, str | float]
@@ -60,13 +66,13 @@ def load_data(
                 ) from error
 
             label = row["Car_Acceptability"]
-            if label not in {"unacc", *POSITIVE_LABELS}:
+            if label not in LABEL_MAPPING:
                 raise ValueError(
                     f"Unknown Car_Acceptability label on dataset row {row_number}: "
                     f"{label!r}"
                 )
             features.append(feature_row)
-            targets.append(int(label in POSITIVE_LABELS))
+            targets.append(LABEL_MAPPING[label])
 
     if not features:
         raise ValueError(f"Dataset contains no data rows: {path}")
@@ -84,40 +90,86 @@ def encode_features(
     return vectorizer.transform(features)
 
 
+def car_data_split_indices(
+    targets: list[int],
+) -> tuple[NDArray, NDArray, NDArray]:
+    """One shared, deterministic 70/15/15 split for training and scenarios.
+
+    Call with the original row ordering and unchanged binary targets. The test
+    partition is never used for fitting either the classifier or vectorizer.
+    """
+    indices = np.arange(len(targets))
+    train_val_idx, test_idx = train_test_split(
+        indices,
+        test_size=0.15,
+        random_state=42,
+        stratify=targets,
+    )
+    train_idx, val_idx = train_test_split(
+        train_val_idx,
+        test_size=3 / 17,
+        random_state=42,
+        stratify=np.asarray(targets)[train_val_idx],
+    )
+    return train_idx, val_idx, test_idx
+
+
 def split_data(
     features: NDArray,
     targets: list[int],
 ) -> tuple[NDArray, NDArray, NDArray, list[int], list[int], list[int]]:
-    train_validation_features, test_features, train_validation_targets, test_targets = (
-        train_test_split(
-            features,
-            targets,
-            test_size=0.15,
-            random_state=42,
-            stratify=targets,
-        )
-    )
-    train_features, validation_features, train_targets, validation_targets = (
-        train_test_split(
-            train_validation_features,
-            train_validation_targets,
-            test_size=3 / 17,
-            random_state=42,
-            stratify=train_validation_targets,
-        )
-    )
+    """Legacy numeric-array interface, now backed by the shared split indices."""
+    train_idx, val_idx, test_idx = car_data_split_indices(targets)
     return (
-        train_features,
-        validation_features,
-        test_features,
-        train_targets,
-        validation_targets,
-        test_targets,
+        features[train_idx],
+        features[val_idx],
+        features[test_idx],
+        [targets[i] for i in train_idx],
+        [targets[i] for i in val_idx],
+        [targets[i] for i in test_idx],
     )
 
 
 def initialize_classifier() -> LogisticRegression:
     return LogisticRegression(max_iter=1000, random_state=42)
+
+
+@dataclass
+class BaselineModel:
+    """One trained acceptability classifier shared by any number of agents.
+
+    Sharing this object does not give those agents different preferences.
+    """
+
+    vectorizer: DictVectorizer
+    classifier: LogisticRegression
+    training_size: int
+
+
+baseline_fit_count = 0
+
+
+def train_baseline_model(
+    rows: list[FeatureRow] | None = None,
+    targets: list[int] | None = None,
+) -> BaselineModel:
+    """Fit preprocessing and logistic regression on the training partition only."""
+    global baseline_fit_count
+    if rows is None or targets is None:
+        rows, targets = load_data()
+    train_idx, _val_idx, _test_idx = car_data_split_indices(targets)
+    training_rows = [rows[int(i)] for i in train_idx]
+    training_targets = [targets[int(i)] for i in train_idx]
+    vectorizer = DictVectorizer(sparse=False)
+    train_features = encode_features(training_rows, vectorizer, fit=True)
+    classifier = initialize_classifier()
+    classifier.fit(train_features, training_targets)
+    baseline_fit_count += 1
+    return BaselineModel(
+        vectorizer=vectorizer,
+        classifier=classifier,
+        training_size=len(training_rows),
+    )
 
 
 def calculate_baseline_vote_probability(
@@ -141,23 +193,36 @@ def convert_probability_to_binary_vote(
     return int(probability >= threshold)
 
 
+def features_from_context(feature_context: Mapping[str, object]) -> FeatureRow:
+    """Coerce one vehicle mapping into the classifier's training representation."""
+    missing_features = set(FEATURE_COLUMNS) - feature_context.keys()
+    if missing_features:
+        raise ValueError(
+            f"Scenario context is missing classifier features: "
+            f"{sorted(missing_features)}"
+        )
+
+    features: FeatureRow = {}
+    for column in FEATURE_COLUMNS[:-1]:
+        value = feature_context[column]
+        if value is None:
+            raise ValueError(f"Scenario feature {column} cannot be None.")
+        features[column] = str(value)
+    try:
+        features["Horse_power"] = float(feature_context["Horse_power"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("Scenario Horse_power must be numeric.") from error
+    return features
+
+
 class LCAgent(AbstractAgent):
     agent_id = "Simple1"
 
-    def __init__(self) -> None:
-        rows, targets = load_data()
-        self.vectorizer = DictVectorizer(sparse=False)
-        encoded_features = encode_features(rows, self.vectorizer, fit=True)
-        (
-            train_features,
-            _validation_features,
-            _test_features,
-            train_targets,
-            _validation_targets,
-            _test_targets,
-        ) = split_data(encoded_features, targets)
-        self.classifier = initialize_classifier()
-        self.classifier.fit(train_features, train_targets)
+    def __init__(self, model: BaselineModel | None = None) -> None:
+        # Reuse a model fitted once per experiment. A missing model trains the baseline.
+        self.model = model if model is not None else train_baseline_model()
+        self.vectorizer = self.model.vectorizer
+        self.classifier = self.model.classifier
 
     def decide(self, decision: Decision, state: State) -> AgentDecision:
         if not decision.decision:
@@ -177,24 +242,7 @@ class LCAgent(AbstractAgent):
                 )
             feature_context = car
 
-        missing_features = set(FEATURE_COLUMNS) - feature_context.keys()
-        if missing_features:
-            raise ValueError(
-                f"Scenario context is missing classifier features: "
-                f"{sorted(missing_features)}"
-            )
-
-        features: FeatureRow = {}
-        for column in FEATURE_COLUMNS[:-1]:
-            value = feature_context[column]
-            if value is None:
-                raise ValueError(f"Scenario feature {column} cannot be None.")
-            features[column] = str(value)
-        try:
-            features["Horse_power"] = float(feature_context["Horse_power"])
-        except (TypeError, ValueError) as error:
-            raise ValueError("Scenario Horse_power must be numeric.") from error
-
+        features = features_from_context(feature_context)
         probability = calculate_baseline_vote_probability(
             self.classifier,
             self.vectorizer,

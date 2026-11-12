@@ -1,0 +1,10 @@
+﻿Held-out baseline comparison (one model, trained on the training partition)
+scenario                   n      mean_p   accept_rate  accept_votes
+full                     260      0.3017        0.3000            78
+budget                    62      0.4072        0.4032            25
+premium                  124      0.2309        0.2097            26
+safe_family               56      0.7437        0.7857            44
+low_safety_family         46      0.0203        0.0000             0
+budget minus premium: mean_p +0.1762, accept_rate +0.1935
+safe_family minus low_safety_family: mean_p +0.7233, accept_rate +0.7857
+Scores are predicted acceptability, not observed willingness to buy.

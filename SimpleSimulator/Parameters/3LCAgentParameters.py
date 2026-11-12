@@ -1,8 +1,9 @@
-from Agents.LinearClassifierAgent import LCAgent
-from Simulator.SimulatorCore import AbstractParameters, AgentConfiguration
+from Parameters.LinearClassifierParameters import LinearClassifierParameters
 
 
-class SimpleParameters(AbstractParameters):
-    @property
-    def agent_configurations(self) -> list[AgentConfiguration]:
-        return [AgentConfiguration(agent_type=LCAgent, count=3)]
+class SimpleParameters(LinearClassifierParameters):
+    """Three shared-model classifier agents.
+
+    The class name is historical. New experiments should use
+    LinearClassifierParameters.
+    """
