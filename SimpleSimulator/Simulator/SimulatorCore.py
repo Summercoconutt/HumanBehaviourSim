@@ -43,6 +43,7 @@ class AbstractAgent(ABC):
 class AgentConfiguration:
     agent_type: type[AbstractAgent]
     count: int
+    init_kwargs: dict[str, object] = field(default_factory=dict)
 
 
 class AbstractScenario(ABC):
@@ -109,7 +110,7 @@ class SimulatorCore:
                 raise ValueError("Agent count cannot be negative.")
 
             for _ in range(configuration.count):
-                agent = configuration.agent_type()
+                agent = configuration.agent_type(**configuration.init_kwargs)
                 # 每个实例获得自己的 ID，即使它们属于同一种 Agent。
                 agent.agent_id = (
                     f"{configuration.agent_type.__name__}_{len(self.agents) + 1}"

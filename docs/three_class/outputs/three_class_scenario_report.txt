@@ -1,0 +1,72 @@
+Three-class acceptability model
+Label map: unacc = unacceptable (0); acc = acceptable (1); good and vgood = good (2).
+There is no neutral class. vgood is grouped with good.
+Split: stratified 70/15/15 on the three-class labels, random_state=42.
+Fit: DictVectorizer and logistic regression on the training rows only.
+Iteration limit: 2,000. This fit used 1320 iterations.
+Decision rule: the class with the highest probability. It was not tuned on the holdout.
+The simulator agent uses this same three-class model.
+Training rows: 1208. Classes: unacceptable, acceptable, good.
+
+Class counts on the frozen split
+split                      n   unacc     acc    good
+train                   1208     846     268      94
+validation               260     182      58      20
+test                     260     182      58      20
+
+Development validation (these rows were not used to fit this model)
+n=260  accuracy=0.9154  macro_f1=0.8343
+Confusion matrix, rows are true class, columns are predicted class.
+Order: unacceptable, acceptable, good.
+  177 5 0
+  7 48 3
+  0 7 13
+
+EXPLORATORY full holdout classification (the same 260 test rows as scenario full)
+These rows were already used to design the scenarios, so this is not a fresh final exam.
+n=260  accuracy=0.9308  macro_f1=0.8871
+Order: unacceptable, acceptable, good.
+  174 8 0
+  4 52 2
+  0 4 16
+
+EXPLORATORY held-out scenario class counts
+These test rows were already used to design the scenarios.
+Counts are argmax decisions. Shares, not raw counts, are compared across groups of different sizes.
+Mean probabilities are the average class probabilities.
+scenario                   n   unacc     acc    good   p_unacc     p_acc    p_good
+full                     260     178      64      18    0.6949    0.2275    0.0776
+budget                    67      37      12      18    0.5531    0.1834    0.2635
+premium                  124      94      30       0    0.7569    0.2351    0.0081
+safe_family               57      11      31      15    0.2296    0.5134    0.2570
+low_safety_family         46      46       0       0    0.9845    0.0074    0.0081
+budget minus premium share difference: unacceptable -0.2058, acceptable -0.0628, good +0.2687
+budget minus premium mean probability difference: unacceptable -0.2038, acceptable -0.0517, good +0.2554
+safe_family minus low_safety_family share difference: unacceptable -0.8070, acceptable +0.5439, good +0.2632
+safe_family minus low_safety_family mean probability difference: unacceptable -0.7549, acceptable +0.5060, good +0.2489
+The same three-class model produces different class distributions across these scenarios.
+This phase shows the concept on the current vehicle table.
+A later study would need properly sourced choice data and a longer experiment.
+Scores are predicted acceptability classes, not observed purchases.
+
+Development-set stratified 5-fold check (training + validation only)
+The decision is argmax. It was not chosen from the holdout.
+  fold     n   log_acc    log_f1   maj_acc    maj_f1
+     1   294    0.9184    0.8684    0.7007    0.2747
+     2   294    0.9422    0.9082    0.7007    0.2747
+     3   294    0.9558    0.9460    0.7007    0.2747
+     4   293    0.9181    0.8631    0.6997    0.2744
+     5   293    0.9317    0.8770    0.6997    0.2744
+mean logistic accuracy 0.9332, majority 0.7003
+mean logistic macro F1 0.8926, majority 0.2746
+This check does not use the frozen test rows.
+
+Three-class sensitivity on one constructed vehicle
+Exactly one attribute changes. This is model sensitivity, not observed consumer behaviour.
+Classes: 0 = unacceptable, 1 = acceptable, 2 = good.
+attribute           from      to   class   new    flip   dp_good
+Buying_Price         med     low       1     2    True    0.3593
+Buying_Price         med    high       1     1   False   -0.2423
+Buying_Price         med   vhigh       1     1   False   -0.2426
+Safety               med     low       1     0    True   -0.2402
+Safety               med    high       1     2    True    0.4388

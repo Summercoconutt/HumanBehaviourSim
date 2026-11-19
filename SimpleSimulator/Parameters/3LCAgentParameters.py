@@ -1,8 +1,8 @@
-from Agents.LinearClassifierAgent import LCAgent
-from Simulator.SimulatorCore import AbstractParameters, AgentConfiguration
+"""Historical filename for three shared-model agents.
 
+Open ``Parameters/three_agents.py``. The model is ``Models/three_class.py``.
+"""
 
-class SimpleParameters(AbstractParameters):
-    @property
-    def agent_configurations(self) -> list[AgentConfiguration]:
-        return [AgentConfiguration(agent_type=LCAgent, count=3)]
+from Parameters.three_agents import SimpleParameters
+
+__all__ = ["SimpleParameters"]

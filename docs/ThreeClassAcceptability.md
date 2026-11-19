@@ -1,0 +1,1 @@
+说明在 [docs/three_class/ThreeClassAcceptability.md](three_class/ThreeClassAcceptability.md)。重新跑出的报告在 [docs/three_class/outputs/three_class_scenario_report.txt](three_class/outputs/three_class_scenario_report.txt)。
