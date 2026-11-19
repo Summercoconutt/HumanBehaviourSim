@@ -1,9 +1,8 @@
-from Parameters.LinearClassifierParameters import LinearClassifierParameters
+"""Historical filename for three shared-model agents.
 
+Open ``Parameters/three_agents.py``. The model is ``Models/three_class.py``.
+"""
 
-class SimpleParameters(LinearClassifierParameters):
-    """Three shared-model classifier agents.
+from Parameters.three_agents import SimpleParameters
 
-    The class name is historical. New experiments should use
-    LinearClassifierParameters.
-    """
+__all__ = ["SimpleParameters"]

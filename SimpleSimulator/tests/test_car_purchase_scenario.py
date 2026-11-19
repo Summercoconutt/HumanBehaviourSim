@@ -12,7 +12,7 @@ class CarPurchaseScenarioChecks(unittest.TestCase):
 
         self.assertEqual(len(decisions), 10)
         self.assertEqual(len(scenario.context["cars"]), 10)
-        self.assertTrue(all(decision.decision == [0, 1] for decision in decisions))
+        self.assertTrue(all(decision.decision == [0, 1, 2] for decision in decisions))
         self.assertTrue(
             all(
                 "Is this vehicle configuration acceptable?" in decision.text_body
@@ -33,5 +33,5 @@ class CarPurchaseScenarioChecks(unittest.TestCase):
         self.assertEqual(result.final_state.step, 10)
         self.assertEqual(len(result.decision_log), 30)
         self.assertTrue(
-            all(answer.choice in [0, 1] for answer in result.decision_log)
+            all(answer.choice in [0, 1, 2] for answer in result.decision_log)
         )

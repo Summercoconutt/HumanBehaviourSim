@@ -1,25 +1,29 @@
-"""Three-class acceptability training summary and scenario report.
+"""Three-class acceptability training summary, scenario report, and sensitivity.
 
-The binary baseline remains the deployed scenario agent. This report scores the
-same held-out groups with a separate three-class model. The decision is the
-argmax class. It was not tuned on the holdout.
+The decision is the class with the highest probability. It was not tuned on the holdout.
 """
 
 from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
+from sklearn.feature_extraction import DictVectorizer
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+from sklearn.model_selection import StratifiedKFold
 
-from Agents.LinearClassifierAgent import (
-    LABEL_MAPPING,
-    THREE_CLASS_NAMES,
-    THREE_CLASS_MAPPING,
+from Models.data import (
+    FEATURE_COLUMNS,
     FeatureRow,
-    ThreeClassModel,
     car_data_split_indices,
+    encode_features,
     features_from_context,
     load_labeled_rows,
+)
+from Models.three_class import (
+    THREE_CLASS_NAMES,
+    ThreeClassModel,
+    class_targets_from_labels,
+    initialize_three_class_classifier,
     score_three_class,
     train_three_class_model,
 )
@@ -52,12 +56,11 @@ def _counts(targets: list[int]) -> tuple[int, int, int]:
 def partition_counts(
     raw_labels: list[str] | None = None,
 ) -> list[PartitionCounts]:
-    """Count three-class labels on the frozen binary split."""
+    """Count three-class labels on the stratified split."""
     if raw_labels is None:
         _rows, raw_labels = load_labeled_rows()
-    binary_targets = [LABEL_MAPPING[label] for label in raw_labels]
-    class_targets = [THREE_CLASS_MAPPING[label] for label in raw_labels]
-    train_idx, val_idx, test_idx = car_data_split_indices(binary_targets)
+    class_targets = class_targets_from_labels(raw_labels)
+    train_idx, val_idx, test_idx = car_data_split_indices(class_targets)
     named = (
         ("train", train_idx),
         ("validation", val_idx),
@@ -86,9 +89,8 @@ def score_partition(
         raise ValueError("Provide both vehicle rows and raw labels, or neither.")
     if rows is None or raw_labels is None:
         rows, raw_labels = load_labeled_rows()
-    binary_targets = [LABEL_MAPPING[label] for label in raw_labels]
-    class_targets = [THREE_CLASS_MAPPING[label] for label in raw_labels]
-    _train_idx, val_idx, test_idx = car_data_split_indices(binary_targets)
+    class_targets = class_targets_from_labels(raw_labels)
+    _train_idx, val_idx, test_idx = car_data_split_indices(class_targets)
     indices = val_idx if partition == "validation" else test_idx
     y_true: list[int] = []
     y_pred: list[int] = []
@@ -206,15 +208,14 @@ def format_three_class_report(
         "Three-class acceptability model",
         "Label map: unacc = unacceptable (0); acc = acceptable (1); good and vgood = good (2).",
         "There is no neutral class. vgood is grouped with good.",
-        "Split: the frozen binary 70/15/15 split. Three-class labels did not redraw it.",
+        "Split: stratified 70/15/15 on the three-class labels, random_state=42.",
         "Fit: DictVectorizer and logistic regression on the training rows only.",
         (
             "Iteration limit: 2,000. This fit used "
-            f"{int(model.classifier.n_iter_.max())} iterations. "
-            "The binary model still uses 1,000."
+            f"{int(model.classifier.n_iter_.max())} iterations."
         ),
         "Decision rule: the class with the highest probability. It was not tuned on the holdout.",
-        "The binary 0/1 model is unchanged and remains the deployed scenario agent.",
+        "The simulator agent uses this same three-class model.",
         (
             f"Training rows: {model.training_size}. "
             f"Classes: {', '.join(THREE_CLASS_NAMES)}."
@@ -294,3 +295,224 @@ def format_three_class_report(
         ]
     )
     return "\n".join(lines)
+
+
+CONTROLLED_BASELINE: FeatureRow = {
+    "Buying_Price": "med",
+    "Maintenance_Price": "med",
+    "No_of_Doors": "4",
+    "Person_Capacity": "4",
+    "Size_of_Luggage": "med",
+    "Safety": "med",
+    "Fuel_Type": "petrol",
+    "Horse_power": 200.0,
+}
+
+
+def changed_columns(left: FeatureRow, right: FeatureRow) -> list[str]:
+    return [column for column in FEATURE_COLUMNS if left[column] != right[column]]
+
+
+def vary_attribute(car: FeatureRow, column: str, value: str | float) -> FeatureRow:
+    if column not in FEATURE_COLUMNS:
+        raise ValueError(f"Unknown vehicle attribute {column!r}.")
+    updated = dict(car)
+    updated[column] = value
+    changed = changed_columns(car, updated)
+    if changed != [column]:
+        raise ValueError(f"Expected only {column} to change, got {changed}.")
+    return updated
+
+
+@dataclass(frozen=True)
+class SensitivityPair:
+    attribute: str
+    baseline_value: str
+    modified_value: str
+    baseline_class: int
+    modified_class: int
+    baseline_probabilities: tuple[float, float, float]
+    modified_probabilities: tuple[float, float, float]
+
+    @property
+    def flipped(self) -> bool:
+        return self.baseline_class != self.modified_class
+
+
+def score_pair(
+    model: ThreeClassModel,
+    baseline: FeatureRow,
+    column: str,
+    modified_value: str | float,
+) -> SensitivityPair:
+    modified = vary_attribute(baseline, column, modified_value)
+    baseline_class, baseline_probabilities = score_three_class(
+        model,
+        features_from_context(baseline),
+    )
+    modified_class, modified_probabilities = score_three_class(
+        model,
+        features_from_context(modified),
+    )
+    return SensitivityPair(
+        attribute=column,
+        baseline_value=str(baseline[column]),
+        modified_value=str(modified_value),
+        baseline_class=baseline_class,
+        modified_class=modified_class,
+        baseline_probabilities=tuple(float(value) for value in baseline_probabilities),
+        modified_probabilities=tuple(float(value) for value in modified_probabilities),
+    )
+
+
+def controlled_sensitivity(
+    model: ThreeClassModel | None = None,
+) -> list[SensitivityPair]:
+    """Change one constructed-car attribute at a time with a frozen classifier."""
+    if model is None:
+        model = train_three_class_model()
+    baseline = dict(CONTROLLED_BASELINE)
+    pairs = [
+        score_pair(model, baseline, "Buying_Price", level)
+        for level in ("low", "high", "vhigh")
+    ]
+    pairs.extend(
+        score_pair(model, baseline, "Safety", level) for level in ("low", "high")
+    )
+    return pairs
+
+
+def format_sensitivity(pairs: list[SensitivityPair]) -> str:
+    lines = [
+        "Three-class sensitivity on one constructed vehicle",
+        "Exactly one attribute changes. This is model sensitivity, not observed consumer behaviour.",
+        "Classes: 0 = unacceptable, 1 = acceptable, 2 = good.",
+        f"{'attribute':<16}{'from':>8}{'to':>8}{'class':>8}{'new':>6}{'flip':>8}{'dp_good':>10}",
+    ]
+    for pair in pairs:
+        good_delta = pair.modified_probabilities[2] - pair.baseline_probabilities[2]
+        lines.append(
+            f"{pair.attribute:<16}{pair.baseline_value:>8}{pair.modified_value:>8}"
+            f"{pair.baseline_class:>8}{pair.modified_class:>6}"
+            f"{str(pair.flipped):>8}{good_delta:>10.4f}"
+        )
+    return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class FoldScore:
+    fold: int
+    validation_size: int
+    logistic_accuracy: float
+    logistic_macro_f1: float
+    majority_accuracy: float
+    majority_macro_f1: float
+
+
+def development_cross_validation(n_splits: int = 5) -> list[FoldScore]:
+    """Compare three-class logistic regression with a majority baseline.
+
+    The check uses only the training and validation rows. Each fold fits its own vectorizer.
+    """
+    rows, raw_labels = load_labeled_rows()
+    targets = class_targets_from_labels(raw_labels)
+    train_idx, val_idx, test_idx = car_data_split_indices(targets)
+    development = np.concatenate([train_idx, val_idx])
+    test_set = {int(index) for index in test_idx}
+    if test_set & {int(index) for index in development}:
+        raise RuntimeError("Development data overlaps the frozen test partition.")
+    labels = np.asarray(targets)[development]
+    splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    scores: list[FoldScore] = []
+    for fold_number, (train_pos, valid_pos) in enumerate(
+        splitter.split(development, labels),
+        start=1,
+    ):
+        train_ids = [int(development[position]) for position in train_pos]
+        valid_ids = [int(development[position]) for position in valid_pos]
+        if test_set & set(train_ids + valid_ids):
+            raise RuntimeError("A development fold contains a frozen test row.")
+        vectorizer = DictVectorizer(sparse=False)
+        train_matrix = encode_features(
+            [rows[index] for index in train_ids],
+            vectorizer,
+            fit=True,
+        )
+        classifier = initialize_three_class_classifier()
+        train_labels = [targets[index] for index in train_ids]
+        classifier.fit(train_matrix, train_labels)
+        valid_matrix = encode_features(
+            [rows[index] for index in valid_ids],
+            vectorizer,
+            fit=False,
+        )
+        valid_labels = [targets[index] for index in valid_ids]
+        predictions = classifier.predict(valid_matrix)
+        majority = max(set(train_labels), key=train_labels.count)
+        majority_predictions = [majority] * len(valid_labels)
+        scores.append(
+            FoldScore(
+                fold=fold_number,
+                validation_size=len(valid_labels),
+                logistic_accuracy=float(accuracy_score(valid_labels, predictions)),
+                logistic_macro_f1=float(
+                    f1_score(
+                        valid_labels,
+                        predictions,
+                        average="macro",
+                        labels=[0, 1, 2],
+                        zero_division=0,
+                    )
+                ),
+                majority_accuracy=float(accuracy_score(valid_labels, majority_predictions)),
+                majority_macro_f1=float(
+                    f1_score(
+                        valid_labels,
+                        majority_predictions,
+                        average="macro",
+                        labels=[0, 1, 2],
+                        zero_division=0,
+                    )
+                ),
+            )
+        )
+    return scores
+
+
+def format_development_cv(scores: list[FoldScore]) -> str:
+    logistic_accuracy = sum(score.logistic_accuracy for score in scores) / len(scores)
+    majority_accuracy = sum(score.majority_accuracy for score in scores) / len(scores)
+    logistic_f1 = sum(score.logistic_macro_f1 for score in scores) / len(scores)
+    majority_f1 = sum(score.majority_macro_f1 for score in scores) / len(scores)
+    lines = [
+        "Development-set stratified 5-fold check (training + validation only)",
+        "The decision is argmax. It was not chosen from the holdout.",
+        f"{'fold':>6}{'n':>6}{'log_acc':>10}{'log_f1':>10}{'maj_acc':>10}{'maj_f1':>10}",
+    ]
+    for score in scores:
+        lines.append(
+            f"{score.fold:>6}{score.validation_size:>6}"
+            f"{score.logistic_accuracy:>10.4f}{score.logistic_macro_f1:>10.4f}"
+            f"{score.majority_accuracy:>10.4f}{score.majority_macro_f1:>10.4f}"
+        )
+    lines.append(
+        f"mean logistic accuracy {logistic_accuracy:.4f}, majority {majority_accuracy:.4f}"
+    )
+    lines.append(
+        f"mean logistic macro F1 {logistic_f1:.4f}, majority {majority_f1:.4f}"
+    )
+    lines.append("This check does not use the frozen test rows.")
+    return "\n".join(lines)
+
+
+def format_full_evaluation(model: ThreeClassModel | None = None) -> str:
+    """Scenario comparison, holdout quality, and the development-set check."""
+    if model is None:
+        model = train_three_class_model()
+    return "\n\n".join(
+        [
+            format_three_class_report(model),
+            format_development_cv(development_cross_validation()),
+            format_sensitivity(controlled_sensitivity(model)),
+        ]
+    )

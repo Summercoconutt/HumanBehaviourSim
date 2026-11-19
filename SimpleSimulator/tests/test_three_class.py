@@ -5,7 +5,6 @@ from sklearn.linear_model import LogisticRegression
 
 from Agents import LinearClassifierAgent
 from Agents.LinearClassifierAgent import (
-    LABEL_MAPPING,
     THREE_CLASS_MAPPING,
     THREE_CLASS_NAMES,
     LCAgent,
@@ -33,28 +32,26 @@ class ThreeClassModelChecks(unittest.TestCase):
 
     def test_label_map_groups_good_and_vgood_and_adds_no_neutral_class(self):
         self.assertEqual(THREE_CLASS_NAMES, ("unacceptable", "acceptable", "good"))
-        self.assertEqual(set(THREE_CLASS_MAPPING), set(LABEL_MAPPING))
+        self.assertEqual(set(THREE_CLASS_MAPPING), {"unacc", "acc", "good", "vgood"})
         self.assertEqual(THREE_CLASS_MAPPING["unacc"], 0)
         self.assertEqual(THREE_CLASS_MAPPING["acc"], 1)
         self.assertEqual(THREE_CLASS_MAPPING["good"], 2)
         self.assertEqual(THREE_CLASS_MAPPING["vgood"], 2)
         self.assertNotIn("neutral", THREE_CLASS_NAMES)
 
-    def test_binary_targets_and_binary_agent_remain_unchanged(self):
+    def test_loaded_targets_and_agent_use_three_classes(self):
         _features, targets = load_data()
-        self.assertEqual(set(targets), {0, 1})
-        self.assertEqual(LABEL_MAPPING, {"unacc": 0, "acc": 1, "good": 1, "vgood": 1})
-        before = LinearClassifierAgent.baseline_fit_count
+        self.assertEqual(set(targets), {0, 1, 2})
+        before = LinearClassifierAgent.three_class_fit_count
         agent = LCAgent()
-        self.assertEqual(LinearClassifierAgent.baseline_fit_count, before + 1)
-        self.assertEqual(list(agent.classifier.classes_), [0, 1])
+        self.assertEqual(LinearClassifierAgent.three_class_fit_count, before + 1)
+        self.assertEqual(list(agent.classifier.classes_), [0, 1, 2])
 
     def test_three_class_fit_uses_the_training_partition_only(self):
         from Agents.LinearClassifierAgent import car_data_split_indices
 
-        binary_targets = [LABEL_MAPPING[label] for label in self.raw_labels]
         class_targets = [THREE_CLASS_MAPPING[label] for label in self.raw_labels]
-        train_idx, val_idx, _test_idx = car_data_split_indices(binary_targets)
+        train_idx, val_idx, _test_idx = car_data_split_indices(class_targets)
         self.assertEqual(self.model.training_size, len(train_idx))
         self.assertEqual(list(self.model.classifier.classes_), [0, 1, 2])
         self.assertLess(int(self.model.classifier.n_iter_.max()), 2000)
@@ -83,8 +80,8 @@ class ThreeClassModelChecks(unittest.TestCase):
     def test_scenario_counts_cover_each_group_and_the_groups_differ(self):
         from Agents.LinearClassifierAgent import car_data_split_indices
 
-        binary_targets = [LABEL_MAPPING[label] for label in self.raw_labels]
-        _train_idx, _val_idx, test_idx = car_data_split_indices(binary_targets)
+        class_targets = [THREE_CLASS_MAPPING[label] for label in self.raw_labels]
+        _train_idx, _val_idx, test_idx = car_data_split_indices(class_targets)
         summaries = compare_three_class_scenarios(self.model)
         count_rows = []
         for summary in summaries:
@@ -111,7 +108,7 @@ class ThreeClassModelChecks(unittest.TestCase):
         self.assertIn("good and vgood = good", report)
         self.assertIn("no neutral class", report)
         self.assertIn("not observed purchases", report)
-        self.assertIn("binary 0/1 model is unchanged", report)
+        self.assertIn("simulator agent uses this same three-class model", report)
         self.assertIn("safe_family", report)
         self.assertIn("low_safety_family", report)
         self.assertIn("share difference", report)

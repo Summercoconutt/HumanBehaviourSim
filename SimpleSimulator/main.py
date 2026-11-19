@@ -1,12 +1,12 @@
 import argparse
 
 from Agents.PreferenceAgent import format_preference_demo
-from Evaluation.reports import (
+from Evaluation.three_class import (
     controlled_sensitivity,
     format_full_evaluation,
     format_sensitivity,
+    format_three_class_report,
 )
-from Evaluation.three_class import format_three_class_report
 from Parameters.LinearClassifierParameters import (
     LinearClassifierParameters,
     SingleLinearClassifierParameters,
@@ -125,13 +125,13 @@ if __name__ == "__main__":
         action="store_true",
         help=(
             "compare full, budget, premium, safe_family, and "
-            "low_safety_family predicted acceptability"
+            "low_safety_family with the three-class model"
         ),
     )
     parser.add_argument(
         "--evaluate",
         action="store_true",
-        help="report exploratory holdout accuracy and the development-set check",
+        help="three-class scenario report, development check, and sensitivity",
     )
     parser.add_argument(
         "--sensitivity",
@@ -146,10 +146,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--three-class",
         action="store_true",
-        help=(
-            "train the separate three-class acceptability model and "
-            "report class counts for the predefined scenarios"
-        ),
+        help="print the three-class training and scenario report",
     )
     arguments = parser.parse_args()
     main(

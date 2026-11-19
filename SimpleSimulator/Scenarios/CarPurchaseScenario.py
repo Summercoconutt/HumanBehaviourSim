@@ -2,16 +2,13 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from Agents.LinearClassifierAgent import (
+from Models.data import (
     FEATURE_COLUMNS,
-    LCAgent,
     FeatureRow,
-    calculate_baseline_vote_probability,
     car_data_split_indices,
-    convert_probability_to_binary_vote,
     features_from_context,
-    load_data,
 )
+from Models.three_class import LCAgent, load_data, score_three_class
 from Simulator.SimulatorCore import (
     AbstractAgent,
     AbstractScenario,
@@ -116,9 +113,9 @@ class CarPurchaseScenario(AbstractScenario):
                 Decision(
                     text_body=(
                         f"Car {car_number}: {ACCEPTABILITY_QUESTION} "
-                        f"(0 = unacceptable, 1 = acceptable)\n{car_details}"
+                        f"(0 = unacceptable, 1 = acceptable, 2 = good)\n{car_details}"
                     ),
-                    decision=[0, 1],
+                    decision=[0, 1, 2],
                 )
             )
         return decisions
@@ -140,52 +137,54 @@ COMPARISON_SCENARIOS = (
 
 @dataclass(frozen=True)
 class ScenarioPredictionSummary:
-    """Acceptability scores for one held-out vehicle group.
+    """Three-class scores for one held-out vehicle group.
 
-    Probabilities come from the shared baseline classifier. They are not
-    observed purchase rates.
+    Probabilities come from the shared three-class classifier. They are not
+    observed purchase rates. Counts are ordered unacceptable, acceptable, good.
     """
 
     scenario_type: str
     sample_count: int
-    mean_probability: float
-    acceptance_rate: float
-    positive_votes: int
+    class_counts: tuple[int, int, int]
+    mean_probabilities: tuple[float, float, float]
 
 
 def summarize_scenario(
     scenario: CarPurchaseScenario,
     agent: LCAgent,
 ) -> ScenarioPredictionSummary:
-    """Score every selected car once with an already trained agent."""
+    """Score every selected car once with an already trained three-class agent."""
     if scenario.sample_count == 0:
         raise ValueError("Cannot summarize a scenario with no cars.")
 
-    probabilities: list[float] = []
-    votes: list[int] = []
+    counts = [0, 0, 0]
+    probability_sums = [0.0, 0.0, 0.0]
     for car in scenario.cars:
-        probability = calculate_baseline_vote_probability(
-            agent.classifier,
-            agent.vectorizer,
+        prediction, probabilities = score_three_class(
+            agent.model,
             features_from_context(car),
         )
-        probabilities.append(probability)
-        votes.append(convert_probability_to_binary_vote(probability))
+        counts[prediction] += 1
+        for index, probability in enumerate(probabilities):
+            probability_sums[index] += float(probability)
 
-    sample_count = len(votes)
+    sample_count = scenario.sample_count
     return ScenarioPredictionSummary(
         scenario_type=scenario.scenario_type,
         sample_count=sample_count,
-        mean_probability=sum(probabilities) / sample_count,
-        acceptance_rate=sum(votes) / sample_count,
-        positive_votes=sum(votes),
+        class_counts=(counts[0], counts[1], counts[2]),
+        mean_probabilities=(
+            probability_sums[0] / sample_count,
+            probability_sums[1] / sample_count,
+            probability_sums[2] / sample_count,
+        ),
     )
 
 
 def compare_held_out_scenarios(
     agent: LCAgent | None = None,
 ) -> list[ScenarioPredictionSummary]:
-    """Evaluate the predefined held-out groups with one fixed baseline model."""
+    """Evaluate the predefined held-out groups with one three-class model."""
     if agent is None:
         agent = LCAgent()
     return [
@@ -194,16 +193,20 @@ def compare_held_out_scenarios(
     ]
 
 
+def _share(summary: ScenarioPredictionSummary, class_index: int) -> float:
+    return summary.class_counts[class_index] / summary.sample_count
+
+
 def comparison_deltas(
     summaries: list[ScenarioPredictionSummary],
 ) -> dict[str, tuple[float, float]]:
-    """Return (mean probability difference, acceptance-rate difference)."""
+    """Return (good-class share difference, mean P(good) difference)."""
     by_name = {summary.scenario_type: summary for summary in summaries}
 
     def pair(left: str, right: str) -> tuple[float, float]:
         return (
-            by_name[left].mean_probability - by_name[right].mean_probability,
-            by_name[left].acceptance_rate - by_name[right].acceptance_rate,
+            _share(by_name[left], 2) - _share(by_name[right], 2),
+            by_name[left].mean_probabilities[2] - by_name[right].mean_probabilities[2],
         )
 
     return {
@@ -219,27 +222,31 @@ def format_scenario_comparison(
     summaries: list[ScenarioPredictionSummary],
 ) -> str:
     lines = [
-        "Held-out baseline comparison (one model, trained on the training partition)",
-        f"{'scenario':<22}{'n':>6}{'mean_p':>12}{'accept_rate':>14}{'accept_votes':>14}",
+        "Held-out three-class comparison (one model, trained on the training partition)",
+        (
+            f"{'scenario':<22}{'n':>6}{'unacc':>8}{'acc':>8}{'good':>8}"
+            f"{'p_unacc':>10}{'p_acc':>10}{'p_good':>10}"
+        ),
     ]
     for summary in summaries:
         lines.append(
             f"{summary.scenario_type:<22}{summary.sample_count:>6}"
-            f"{summary.mean_probability:>12.4f}{summary.acceptance_rate:>14.4f}"
-            f"{summary.positive_votes:>14}"
+            f"{summary.class_counts[0]:>8}{summary.class_counts[1]:>8}"
+            f"{summary.class_counts[2]:>8}{summary.mean_probabilities[0]:>10.4f}"
+            f"{summary.mean_probabilities[1]:>10.4f}{summary.mean_probabilities[2]:>10.4f}"
         )
     deltas = comparison_deltas(summaries)
-    budget_probability, budget_rate = deltas["budget_minus_premium"]
-    safety_probability, safety_rate = deltas["safe_family_minus_low_safety_family"]
+    budget_share, budget_probability = deltas["budget_minus_premium"]
+    safety_share, safety_probability = deltas["safe_family_minus_low_safety_family"]
     lines.append(
-        "budget minus premium: "
-        f"mean_p {budget_probability:+.4f}, accept_rate {budget_rate:+.4f}"
+        "budget minus premium, good class: "
+        f"share {budget_share:+.4f}, mean_p {budget_probability:+.4f}"
     )
     lines.append(
-        "safe_family minus low_safety_family: "
-        f"mean_p {safety_probability:+.4f}, accept_rate {safety_rate:+.4f}"
+        "safe_family minus low_safety_family, good class: "
+        f"share {safety_share:+.4f}, mean_p {safety_probability:+.4f}"
     )
     lines.append(
-        "Scores are predicted acceptability, not observed willingness to buy."
+        "Scores are predicted acceptability classes, not observed purchases."
     )
     return "\n".join(lines)

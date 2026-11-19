@@ -3,9 +3,9 @@ import unittest
 from Agents.LinearClassifierAgent import (
     LCAgent,
     car_data_split_indices,
-    calculate_baseline_vote_probability,
     features_from_context,
     load_data,
+    score_three_class,
 )
 from Scenarios.CarPurchaseScenario import (
     SCENARIO_FILTERS,
@@ -71,51 +71,43 @@ class ConfigurableScenarioTests(unittest.TestCase):
         agent = LCAgent()
         first = compare_held_out_scenarios(agent)
         second = compare_held_out_scenarios(agent)
-        expected_counts = {
-            "full": 260,
-            "budget": 62,
-            "premium": 124,
-            "safe_family": 56,
-            "low_safety_family": 46,
-        }
-        self.assertEqual([summary.scenario_type for summary in first], list(expected_counts))
+        self.assertEqual(
+            [summary.scenario_type for summary in first],
+            ["full", "budget", "premium", "safe_family", "low_safety_family"],
+        )
         for summary in first:
-            self.assertEqual(summary.sample_count, expected_counts[summary.scenario_type])
             self.assertGreater(summary.sample_count, 0)
-            self.assertGreaterEqual(summary.mean_probability, 0.0)
-            self.assertLessEqual(summary.mean_probability, 1.0)
-            self.assertAlmostEqual(
-                summary.acceptance_rate,
-                summary.positive_votes / summary.sample_count,
-            )
+            self.assertEqual(sum(summary.class_counts), summary.sample_count)
+            self.assertAlmostEqual(sum(summary.mean_probabilities), 1.0, places=6)
+        self.assertEqual(first[0].sample_count, len(self.test_idx))
         self.assertEqual(first, second)
 
         scenario = CarPurchaseScenario(scenario_type="budget")
         self.assertTrue(set(scenario.selected_indices) <= set(self.test_idx))
         summary = summarize_scenario(scenario, agent)
-        probabilities = []
-        votes = []
+        recounted = [0, 0, 0]
         for car in scenario.cars:
-            probability = calculate_baseline_vote_probability(
-                agent.classifier,
-                agent.vectorizer,
+            prediction, _probabilities = score_three_class(
+                agent.model,
                 features_from_context(car),
             )
-            answer = agent.decide(Decision("Would you buy this car?", [0, 1]), State(context=car))
-            probabilities.append(probability)
-            votes.append(answer.choice)
-        self.assertAlmostEqual(summary.mean_probability, sum(probabilities) / len(probabilities))
-        self.assertEqual(summary.positive_votes, sum(votes))
+            answer = agent.decide(
+                Decision("Car acceptability", [0, 1, 2]),
+                State(context=car),
+            )
+            recounted[prediction] += 1
+            self.assertEqual(answer.choice, prediction)
+        self.assertEqual(summary.class_counts, tuple(recounted))
         deltas = comparison_deltas(first)
         self.assertEqual(
             set(deltas),
             {"budget_minus_premium", "safe_family_minus_low_safety_family"},
         )
-        for probability_delta, rate_delta in deltas.values():
+        for share_delta, probability_delta in deltas.values():
+            self.assertGreaterEqual(share_delta, -1.0)
+            self.assertLessEqual(share_delta, 1.0)
             self.assertGreaterEqual(probability_delta, -1.0)
             self.assertLessEqual(probability_delta, 1.0)
-            self.assertGreaterEqual(rate_delta, -1.0)
-            self.assertLessEqual(rate_delta, 1.0)
 
 
 if __name__ == "__main__":

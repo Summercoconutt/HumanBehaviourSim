@@ -4,6 +4,8 @@
 **Issue:** #2 — Review and Refactor CarPurchaseScenario.py  
 **Date:** 4 November 2026
 
+The running acceptability model is now three-class. The simulator agent predicts 0, 1, or 2. Sentences below that describe a 0/1 threshold describe the earlier design. The current report is `docs/three_class/outputs/three_class_scenario_report.txt`.
+
 ## 1. Original code — execution flow
 
 1. CarPurchaseScenario() calls load_data() to read Data/final.csv. The eight vehicle attributes are model features; Car_Acceptability is converted to 0 = unacc and 1 = acc/good/vgood.
@@ -111,4 +113,4 @@ Issue #2 now has the documented review, configurable scenario construction, a sh
 
 George's review is still required before merging pull request #4. This issue should stay open until that review.
 
-Issue #3 is covered by `python main.py CarPurchaseScenario LinearClassifierParameters --compare` and by `docs/Held-Out Scenario Comparison Explanation.md`. That run reports mean predicted probability, acceptance rate, and the two predefined contrasts. It does not add resampling intervals or agents with different preferences. Those remain later work. The scores are predicted acceptability, not observed willingness to buy.
+Issue #3 is covered by `python main.py CarPurchaseScenario LinearClassifierParameters --compare`. The current three-class numbers are in `docs/three_class/ThreeClassAcceptability.md`. That run reports mean predicted probability, acceptance rate, and the two predefined contrasts. It does not add resampling intervals or agents with different preferences. Those remain later work. The scores are predicted acceptability, not observed willingness to buy.
