@@ -26,14 +26,19 @@ FEATURE_COLUMNS = (
 # unacc -> 0; acc, good, and vgood -> 1.
 LABEL_MAPPING = {"unacc": 0, "acc": 1, "good": 1, "vgood": 1}
 POSITIVE_LABELS = {label for label, value in LABEL_MAPPING.items() if value == 1}
+# Three-class map agreed after the binary baseline. The file has no neutral label.
+# unacc -> unacceptable; acc -> acceptable; good and vgood -> good.
+THREE_CLASS_MAPPING = {"unacc": 0, "acc": 1, "good": 2, "vgood": 2}
+THREE_CLASS_NAMES = ("unacceptable", "acceptable", "good")
 DATA_PATH = Path(__file__).resolve().parents[2] / "Data" / "final.csv"
 
 FeatureRow = dict[str, str | float]
 
 
-def load_data(
+def load_labeled_rows(
     path: Path = DATA_PATH,
-) -> tuple[list[FeatureRow], list[int]]:
+) -> tuple[list[FeatureRow], list[str]]:
+    """Load vehicle rows and the original Car_Acceptability strings."""
     with path.open(newline="", encoding="utf-8") as data_file:
         reader = csv.DictReader(data_file, delimiter=";")
         if reader.fieldnames is None:
@@ -48,7 +53,7 @@ def load_data(
             )
 
         features: list[FeatureRow] = []
-        targets: list[int] = []
+        raw_labels: list[str] = []
         for row_number, row in enumerate(reader, start=2):
             feature_row: FeatureRow = {}
             for column in FEATURE_COLUMNS[:-1]:
@@ -66,17 +71,25 @@ def load_data(
                 ) from error
 
             label = row["Car_Acceptability"]
-            if label not in LABEL_MAPPING:
+            if label not in LABEL_MAPPING or label not in THREE_CLASS_MAPPING:
                 raise ValueError(
                     f"Unknown Car_Acceptability label on dataset row {row_number}: "
                     f"{label!r}"
                 )
             features.append(feature_row)
-            targets.append(LABEL_MAPPING[label])
+            raw_labels.append(label)
 
     if not features:
         raise ValueError(f"Dataset contains no data rows: {path}")
-    return features, targets
+    return features, raw_labels
+
+
+def load_data(
+    path: Path = DATA_PATH,
+) -> tuple[list[FeatureRow], list[int]]:
+    """Load vehicle rows and the binary acceptability targets."""
+    features, raw_labels = load_labeled_rows(path)
+    return features, [LABEL_MAPPING[label] for label in raw_labels]
 
 
 def encode_features(
@@ -134,6 +147,15 @@ def initialize_classifier() -> LogisticRegression:
     return LogisticRegression(max_iter=1000, random_state=42)
 
 
+def initialize_three_class_classifier() -> LogisticRegression:
+    """Same model family as the binary baseline, with a higher iteration limit.
+
+    The binary fit converges within 1,000 iterations. This three-class fit
+    reached the iteration limit there and converged at 1,339, so the limit is 2,000.
+    """
+    return LogisticRegression(max_iter=2000, random_state=42)
+
+
 @dataclass
 class BaselineModel:
     """One trained acceptability classifier shared by any number of agents.
@@ -147,6 +169,7 @@ class BaselineModel:
 
 
 baseline_fit_count = 0
+three_class_fit_count = 0
 
 
 def train_baseline_model(
@@ -170,6 +193,76 @@ def train_baseline_model(
         classifier=classifier,
         training_size=len(training_rows),
     )
+
+
+@dataclass
+class ThreeClassModel:
+    """Acceptability model with three classes, trained separately from the binary baseline.
+
+    Classes are unacceptable, acceptable, and good. good includes the original vgood rows.
+    There is no neutral class. Sharing rules do not apply: the binary agents do not use this object.
+    """
+
+    vectorizer: DictVectorizer
+    classifier: LogisticRegression
+    training_size: int
+
+
+def train_three_class_model(
+    rows: list[FeatureRow] | None = None,
+    raw_labels: list[str] | None = None,
+) -> ThreeClassModel:
+    """Fit a three-class model on the frozen binary split's training rows only.
+
+    The split is still made from the binary targets, so the training, validation,
+    and test indices stay the ones used by the binary baseline. Three-class labels
+    are the fitting targets. They are not used to redraw the split, and test rows
+    are not fitting targets.
+    """
+    global three_class_fit_count
+    if (rows is None) != (raw_labels is None):
+        raise ValueError("Provide both vehicle rows and raw labels, or neither.")
+    if rows is None or raw_labels is None:
+        rows, raw_labels = load_labeled_rows()
+    if len(rows) != len(raw_labels):
+        raise ValueError("Each vehicle row needs one acceptability label.")
+
+    binary_targets = [LABEL_MAPPING[label] for label in raw_labels]
+    class_targets = [THREE_CLASS_MAPPING[label] for label in raw_labels]
+    train_idx, _val_idx, _test_idx = car_data_split_indices(binary_targets)
+    training_rows = [rows[int(index)] for index in train_idx]
+    training_targets = [class_targets[int(index)] for index in train_idx]
+    if set(training_targets) != {0, 1, 2}:
+        raise ValueError(
+            "The training partition must contain unacceptable, acceptable, and good."
+        )
+
+    vectorizer = DictVectorizer(sparse=False)
+    train_features = encode_features(training_rows, vectorizer, fit=True)
+    classifier = initialize_three_class_classifier()
+    classifier.fit(train_features, training_targets)
+    three_class_fit_count += 1
+    return ThreeClassModel(
+        vectorizer=vectorizer,
+        classifier=classifier,
+        training_size=len(training_rows),
+    )
+
+
+def score_three_class(
+    model: ThreeClassModel,
+    features: FeatureRow,
+) -> tuple[int, NDArray]:
+    """Return the argmax class and probabilities ordered as unacceptable, acceptable, good."""
+    encoded_features = encode_features([features], model.vectorizer)
+    raw_probabilities = model.classifier.predict_proba(encoded_features)[0]
+    ordered = np.zeros(len(THREE_CLASS_NAMES), dtype=float)
+    for index, class_id in enumerate(model.classifier.classes_):
+        ordered[int(class_id)] = float(raw_probabilities[index])
+    if abs(float(ordered.sum()) - 1.0) > 1e-6:
+        raise RuntimeError("Three-class probabilities do not cover every class.")
+    prediction = int(model.classifier.predict(encoded_features)[0])
+    return prediction, ordered
 
 
 def calculate_baseline_vote_probability(

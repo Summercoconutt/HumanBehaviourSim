@@ -6,6 +6,7 @@ from Evaluation.reports import (
     format_full_evaluation,
     format_sensitivity,
 )
+from Evaluation.three_class import format_three_class_report
 from Parameters.LinearClassifierParameters import (
     LinearClassifierParameters,
     SingleLinearClassifierParameters,
@@ -47,8 +48,9 @@ def main(
     evaluate: bool = False,
     sensitivity: bool = False,
     preferences: bool = False,
+    three_class: bool = False,
 ) -> None:
-    if compare or evaluate or sensitivity or preferences:
+    if compare or evaluate or sensitivity or preferences or three_class:
         if scenario_name != "CarPurchaseScenario":
             raise ValueError("Scenario reports require CarPurchaseScenario.")
         if scenario_type != "random" or sample_count is not None or seed != 42:
@@ -64,6 +66,8 @@ def main(
             print(format_sensitivity(controlled_sensitivity()))
         if preferences:
             print(format_preference_demo())
+        if three_class:
+            print(format_three_class_report())
         return
 
     if scenario_name == "CarPurchaseScenario":
@@ -139,6 +143,14 @@ if __name__ == "__main__":
         action="store_true",
         help="show two illustrative synthetic preference profiles",
     )
+    parser.add_argument(
+        "--three-class",
+        action="store_true",
+        help=(
+            "train the separate three-class acceptability model and "
+            "report class counts for the predefined scenarios"
+        ),
+    )
     arguments = parser.parse_args()
     main(
         arguments.scenario,
@@ -150,4 +162,5 @@ if __name__ == "__main__":
         evaluate=arguments.evaluate,
         sensitivity=arguments.sensitivity,
         preferences=arguments.preferences,
+        three_class=arguments.three_class,
     )

@@ -5,7 +5,9 @@
 
 ## What is being predicted
 
-Each row is one vehicle configuration in `Data/final.csv`. The label is `Car_Acceptability`, mapped as `unacc -> 0` and `acc`, `good`, or `vgood -> 1`. The model predicts that acceptability label. It does not predict an observed purchase or a willingness to pay.
+Each row is one vehicle configuration in `Data/final.csv`. The deployed scenario agent maps `Car_Acceptability` as `unacc -> 0` and `acc`, `good`, or `vgood -> 1`. That model predicts acceptability. It does not predict an observed purchase or a willingness to pay.
+
+A separate three-class model uses `unacc -> unacceptable`, `acc -> acceptable`, and `good` together with `vgood -> good`. It does not add a neutral class, and it does not replace the binary agent. The map, validation result, and scenario report are in `docs/ThreeClassAcceptability.md`.
 
 ## Splits
 
@@ -40,6 +42,7 @@ From `SimpleSimulator`:
 python main.py CarPurchaseScenario LinearClassifierParameters --compare
 python main.py CarPurchaseScenario LinearClassifierParameters --evaluate
 python main.py CarPurchaseScenario LinearClassifierParameters --sensitivity
+python main.py CarPurchaseScenario LinearClassifierParameters --three-class
 ```
 
 ## What remains historical
